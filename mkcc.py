@@ -124,7 +124,7 @@ def mkcc_snproc (inna,incl,outna,outcl,inseq=1,outseq=1,indisk=1):
 # source file and writes it out to disk. This is needed
 # because the CL table left by mkcc_snproc will cause crashes
 # later (it contains antennas not in the data)
-def mkcc_apply (inna,incl,outfile,indisk=1,inseq=1):
+def mkcc_apply (inna,incl,outfile,noise=0.0,indisk=1,inseq=1):
     d = WizAIPSUVData(inna,incl,indisk,inseq)
     s = d.table('SU',1)[0]['source'].strip()
     zapexisting (s,'SPLIT',indisk)
@@ -132,9 +132,15 @@ def mkcc_apply (inna,incl,outfile,indisk=1,inseq=1):
     split.indata = AIPSUVData(inna,incl,indisk,inseq)
     split.docalib = 1
     split.go()
+    zapexisting (s,'UVMOD',indisk)
+    uvmod = AIPSTask('uvmod')
+    uvmod.indata = AIPSUVData(s,'SPLIT',indisk,inseq)
+    uvmod.flux = noise
+    uvmod.factor = 1.0
+    uvmod.go ()
     zapexisting (s,'MULTI',indisk)
     multi = AIPSTask('multi')
-    multi.indata = AIPSUVData(s,'SPLIT',indisk,inseq)
+    multi.indata = AIPSUVData(s,'UVMOD',indisk,inseq)
     multi.outdata = AIPSUVData(s,'MULTI',indisk,inseq)
     multi.go()
     os.system ('rm '+outfile)
@@ -154,7 +160,7 @@ def mkcc_do(cc,outfile='sim.fits',antfile='lofx'):
     mkcc_casa (cc)
     os.system('rm -f temp.fits; rm -fr temp; rm -f casa-*.log; rm -f ipy*.log')
     mkcc_snproc ('SNTAB','UVDATA','UVSIM','FITS')
-    mkcc_apply ('UVSIM','FITS',outfile)
+    mkcc_apply ('UVSIM','FITS',outfile,noise=0.2)
 
 #  here runs a single simulation
 cc=np.array([[0.,0.,1.,2.,1.,45.],[0.,1.,0.5,2.,1.,0.]])
