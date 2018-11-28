@@ -3,7 +3,7 @@ from astropy import coordinates
 from astropy.coordinates import SkyCoord
 casapy = '/pkg/casa-stable-5.0.101/bin/casa'
 
-def douvcon_casa (cc,antfile='lofar_xyz',freq=140.,ra=180.,dec=60.,hastart=0.,\
+def douvcon_casa (cc,antfile='lofx',freq=140.,ra=180.,dec=60.,hastart=0.,\
                   haend=0.05,tint=2.,chwid=0.048828125,nchan=64):
     cosd = np.cos(np.deg2rad(dec))
     s = SkyCoord(ra,dec,unit='degree').to_string(style='hmsdms')
@@ -33,7 +33,7 @@ def douvcon_casa (cc,antfile='lofar_xyz',freq=140.,ra=180.,dec=60.,hastart=0.,\
         if len(c)==3:
             sstr += 'shape="point")'
         else:
-            sstr += 'shape="Gaussian", majoraxis="%.farcsec"'%c[3]
+            sstr += 'shape="Gaussian", majoraxis="%.farcsec", '%c[3]
             sstr += 'minoraxis="%.farcsec",positionangle="%.fdeg")'%(c[4],c[5])
         f.write('%s\n'%sstr)
     f.write('os.system("rm -fr douvcon_casa.cl")\n')
@@ -49,14 +49,15 @@ def douvcon_casa (cc,antfile='lofar_xyz',freq=140.,ra=180.,dec=60.,hastart=0.,\
     f.write('obsmode = "int"\n')
     f.write('integration = "%ds"\n' % int(tint))
     f.write('antennalist = "%s"\n'%antfile)
-    f.write('totaltime = "300s"\n')
+    f.write('totaltime = "%fs"\n'%((haend-hastart)*3600.))
     f.write('mapsize = "10arcsec"\n')
     f.write('thermalnoise = ""\n')
+#    f.write('t_sky = 1000\n')
+    f.write('graphics = "none"\n')
     f.write('simobserve()\n')
     f.write('os.system("rm temp.fits")\n')
-    f.write('exportuvfits("temp/temp.lofar_xyz.ms","temp.fits")\n')
+    f.write('exportuvfits("temp/temp.lofx.ms","temp.fits")\n')
     f.close()
-
-cc = np.load('cc.npy')
-douvcon_casa (cc)
-os.system(casapy + ' --nologger -c douvcon_casa')
+    os.system(casapy + ' --nologger -c douvcon_casa')
+    os.system('rm Gaussian.fits;rm -fr Gaussian.im')
+    os.system('rm -fr douvcon_casa.cl')

@@ -32,10 +32,11 @@ def findexisting (inna, incl, indisk=1):
             isseq = max(isseq,i['seq'])
     return isseq
                 
-########
-#   components of source: xoffset/arcs, yoffset/arcs, flux/Jy, bmax/arcsec, bmin/arcsec, pa
+######## mkcc_casa
+#   call CASA to make simulation of source:
+#   cc is: xoffset/arcs, yoffset/arcs, flux/Jy, bmax/arcs, bmin/arcs, pa
 
-def mkcc_casa (cc,antfile='lofar_xyz',freq=140,ra=180.,dec=60.,hastart=0.,\
+def mkcc_casa (cc,antfile='lofx',freq=140,ra=180.,dec=60.,hastart=0.,\
                haend=0.05,tint=2.,chwid=0.048828125,nchan=64):
     douvcon_casa.douvcon_casa(cc,antfile=antfile,freq=freq,ra=ra,dec=dec,\
                hastart=hastart,haend=haend,tint=tint,chwid=chwid,nchan=nchan)
@@ -46,6 +47,7 @@ def mkcc_casa (cc,antfile='lofar_xyz',freq=140,ra=180.,dec=60.,hastart=0.,\
     fitld.outdisk = indisk
     fitld.go()
 
+# --------------- mkcc_snproc ---------------------------
 # mkcc_snproc routine: Takes an SN table from an arbitrary input file
 # on an AIPS disk, copies it to the UVSIM.FITS file, and adjusts both
 # times and antennas (including both the antenna in each solution and
@@ -74,7 +76,9 @@ def mkcc_snproc (inna,incl,outna,outcl,inseq=1,outseq=1,indisk=1):
     for i in outan:
         outanname.append(i['anname'])
         outanno.append(i['nosta'])
-    # now we need a list with columns: nosta that it should be replaced by; nosta in output
+    # make the acorr array. This is a list of 2-element arrays. The
+    # first element is the station number that should replace the second
+    # station number in the solution table
     for i in outanname:
         for j in inanname:
             if i[:5]==j[:5]:
@@ -86,6 +90,8 @@ def mkcc_snproc (inna,incl,outna,outcl,inseq=1,outseq=1,indisk=1):
     acorr+=1     # AIPS antenna tables start at 1
     print 'Antenna correspondence table found:'
     print acorr
+    # Now fiddle the times in the SN table, and fiddle both the antenna
+    # and reference antenna numbers using the acorr array
     icou=0
     for i in outsn:
         i['time'] += tdiff
@@ -106,16 +112,50 @@ def mkcc_snproc (inna,incl,outna,outcl,inseq=1,outseq=1,indisk=1):
         except:
             pass
         icou+=1
+    # Finally, interpolate to a CL table. This is not present but
+    # will be created - ignore error messages about GEODELAY etc
     clcal = AIPSTask('clcal')
     clcal.indata = AIPSUVData(outna,outcl,indisk,outseq)
     clcal.go()
-    
 
-def doit():
-    cc=np.array([[0.,0.,1.,2.,1.,45.],[0.,1.,0.5,2.,1.,0.]])
+# ------------------- mkcc_apply ----------------
+# Gets the simulation file, with a CL table; performs
+# a SPLIT of the first source in the file, creates a multi-
+# source file and writes it out to disk. This is needed
+# because the CL table left by mkcc_snproc will cause crashes
+# later (it contains antennas not in the data)
+def mkcc_apply (inna,incl,outfile,indisk=1,inseq=1):
+    d = WizAIPSUVData(inna,incl,indisk,inseq)
+    s = d.table('SU',1)[0]['source'].strip()
+    zapexisting (s,'SPLIT',indisk)
+    split = AIPSTask('split')
+    split.indata = AIPSUVData(inna,incl,indisk,inseq)
+    split.docalib = 1
+    split.go()
+    zapexisting (s,'MULTI',indisk)
+    multi = AIPSTask('multi')
+    multi.indata = AIPSUVData(s,'SPLIT',indisk,inseq)
+    multi.outdata = AIPSUVData(s,'MULTI',indisk,inseq)
+    multi.go()
+    os.system ('rm '+outfile)
+    fittp = AIPSTask('fittp')
+    fittp.indata = AIPSUVData(s,'MULTI',indisk,1)
+    fittp.dataout = './'+outfile
+    fittp.go()
+    
+# ---------------  mkcc_do ----------------
+# Make a single fits file of a simulation with a given set of CCs
+# The antfile must be a file of 4 letters or less, and ST001 should
+#       be the LAST telescope in it
+# A SN table will be read from a file in the AIPS directory called
+#       SNTAB.UVDATA.1 (and will crash if not available)
+def mkcc_do(cc,outfile='sim.fits',antfile='lofx'):
     zapexisting ('UVSIM','FITS',indisk)
     mkcc_casa (cc)
     os.system('rm -f temp.fits; rm -fr temp; rm -f casa-*.log; rm -f ipy*.log')
-    mkcc_snproc ('L617504','UVDATA','UVSIM','FITS')
+    mkcc_snproc ('SNTAB','UVDATA','UVSIM','FITS')
+    mkcc_apply ('UVSIM','FITS',outfile)
 
-doit()
+#  here runs a single simulation
+cc=np.array([[0.,0.,1.,2.,1.,45.],[0.,1.,0.5,2.,1.,0.]])
+mkcc_do(cc,outfile='L617sim.fits')
