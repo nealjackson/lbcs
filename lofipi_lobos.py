@@ -21,8 +21,36 @@ plt.rcParams['image.interpolation']='nearest'
 plt.rcParams['image.origin']='lower'
 warnings.simplefilter('ignore')
 INDE,twopi = 3140.892822265625, 2.0*np.pi
-wenss_max = 300
+# ---------------------------------------------------------------
+#   important parameters
+#   only fiddle if you know what you are doing
+wenss_max = 300              # maximum number of WENSS sources to plot
+CLIP = 15.0                  # clipping of bad data for FFTSN statistic
+FLOG = 'lofipi_lobos.log'    # logfile name
+WEIGHT  = 1                  # weightit parameter in FRING - 1 is best
+SOLINT1 = 4                  # FRING SOLINT for first pass (all scan)
+SOLINT2 = 0.1                # FRING SOLINT for main pass
+SNR1    = 6                  # FRING SOLINT for first pass (all scan)
+SNR2    = 2                  # FRING SOLINT for main pass
+SUPERTERP = ['ST001','TS001']# possible names for phased superterp
+INDISK  = 1                  # aips disk
+DELAYWIN = 600               # FRING delay search window
+RATEWIN = 5                  # FRING rate search window
 # --------------------------------------------------------------------
+
+def dqual(d,clip=False):
+    val = ''
+    if d.ndim!=3 or d.shape[0]!=2:
+        return 'M',0.0 if clip else 'M'
+    if d.shape[1]<10 or d.shape[2]<30:
+        return 'X',0.0 if clip else 'X'
+    a = abs(np.ravel(d))
+    aok = a[a!=0.0]
+    if len(aok)<0.5*len(a):
+        return 'Z',float(len(aok))/float(len(a)) if clip else 'Z'
+    if aok.max()>CLIP*np.median(aok):
+        return 'A', np.median(aok) if clip else 'A'
+    return 'O',0.0 if clip else 'O'
 
 def dget (uvdata,baseline,utstart=-1.0E9,utstop=1.0E9,startvis=0):
     if baseline.ndim==1:
@@ -84,7 +112,6 @@ def getsn (uvdata, inver, pfring_antennas, nif, refant):
         times.append(i['time'])
     times = np.unique(times)
     sd = np.zeros((len(pfring_antennas),4,nif,len(times),2))
-    print 'Looking for antennas',pfring_antennas
     for i in sn:
         indx_t = np.argwhere(times==i['time'])[0][0]
         indx_a = np.argwhere(pfring_antennas==i['antenna_no'])[0][0]
@@ -135,6 +162,12 @@ def stats (aipsname,pfring_antennas,pgood,refant,obs,sd,sd1):
     coord+=('+'+l[3]+l[4]+l[5].split('.')[0])
     f.close()
     obs['point_RA'],obs['point_dec']=ra,dec
+    flog = open(FLOG,'a')
+    flog.write ('%s %s %s: ant '%(coord,ra,dec))
+    for i in fring_antennas:
+        flog.write('%s '%str(i))
+    flog.write('\n')
+    flog.close()
     print coord,ra,dec,fring_antennas
     obs['delay_4'], obs['phase_4'], obs['rate_4'], obs['snr_4'] = \
         sd1[:,0,0,0,:], sd1[:,1,0,0,:], sd1[:,2,0,0,:], sd1[:,3,0,0,:]
@@ -144,8 +177,21 @@ def stats (aipsname,pfring_antennas,pgood,refant,obs,sd,sd1):
     os.system('rm tempRA');os.system('rm tempDEC')
     return ra,dec
 
+def get_fftsn (dfft):
+    # Sum of brightest 6 pixels in the central 10x10, divided by rms
+    dy,dx = dfft.shape[0],dfft.shape[1]
+    dfftmax = dfft[max(0,dy/2-10):min(dy-1,dy/2+10),\
+                   max(0,dx/2-10):min(dx-1,dx/2+10)]
+    dfftmax_ravel = np.sort(np.ravel(dfftmax))
+    dfftmax_p = (dfftmax_ravel[-6:]).sum()
+    dfft_ravel = np.sort(np.ravel(dfft))
+    dfft_ravel = dfft_ravel[:int(0.99*len(dfft_ravel))]
+    dsn = dfftmax_p/np.std(dfft_ravel)
+    return dsn
+
 def panelplot(sd,aipsname,intl_antennas,intl_name,times,refant,ra,dec):
     ny,nx = len(intl_antennas),6
+    fftsn = np.zeros((ny,2))
     pltsquash = 0.5*float(sd.shape[3])/float(sd.shape[2])
     for pol in [0,1]:
         for i in range(ny):
@@ -153,17 +199,24 @@ def panelplot(sd,aipsname,intl_antennas,intl_name,times,refant,ra,dec):
             d,uvw,tjunk=dget(wdata,np.array([intl_antennas[i],refant]))
             plt.subplot(nx,ny,i+1,xticks=[],yticks=[])
             if d!=[]:
+                dq,val = dqual(d[0],clip=True)
+                if dq=='A':
+                    np.putmask(d[0][pol],abs(d[0][pol])>CLIP*val,val+0.0j)
                 plt.imshow(np.arctan2(d[0][pol].imag,d[0][pol].real))
+#                plt.imshow(abs(d[0][pol]))
             if i==2:
                 plt.title(aipsname+' '+ra+' '+dec)
             plt.subplot(nx,ny,i+1+ny,xticks=[],yticks=[])
             if d!=[]:
-                plt.imshow(np.sqrt(abs(fft.fftshift(fft.fft2(d[0][pol])))),cmap=matplotlib.cm.gray_r)
+                dfft = abs(fft.fftshift(fft.fft2(d[0][pol])))
+                fftsn[i,pol] = get_fftsn(dfft)
+                plt.imshow(np.sqrt(dfft),cmap=matplotlib.cm.gray_r)
             plt.subplot(nx,ny,i+1+2*ny,xticks=[],yticks=[])
             plt.plot(times,sd[i,0,0,:,pol],'b+')
             meddelay = np.nanmedian(sd[i,0,0,:,pol])
             meddelay = meddelay if meddelay < 3.e6 else 0
-            plt.text(times[0],meddelay-50,str(int(meddelay)))
+            if meddelay:
+                plt.text(times[0],meddelay-50,str(int(meddelay)))
             plt.ylim(meddelay-50.,meddelay+50)
             plt.subplot(nx,ny,i+1+3*ny,xticks=[],yticks=[])
             phx = times[~np.isnan(sd[i,1,0,:,pol])]
@@ -173,22 +226,46 @@ def panelplot(sd,aipsname,intl_antennas,intl_name,times,refant,ra,dec):
 #            plt.ylim(medphase-2.0,medphase+2.0)
             wdata = WizAIPSUVData (aipsname,'SPLIT', 1, 1)
             d,uvw,tjunk=dget(wdata,np.array([intl_antennas[i],refant]))
+            if d!=[]:
+                dq,val = dqual(d[0],clip=True)
+                if dq=='A':
+                    np.putmask(d[0][pol],abs(d[0][pol])>CLIP*val,val+0.0j)
             plt.subplot(nx,ny,i+1+4*ny,xticks=[],yticks=[])
-            if d!=[]:
+            try:
                 plt.imshow(np.arctan2(d[0][pol].imag,d[0][pol].real))
+            except:
+                print 'No calibrated data on ',intl_antennas[i]
+                flog=open(FLOG,'a')
+                flog.write('No calibrated data on %s\n'%str(intl_antennas[i]))
+                flog.close()
             plt.subplot(nx,ny,i+1+5*ny,xticks=[],yticks=[])
-            if d!=[]:
+            try:
                 plt.imshow(np.sqrt(abs(fft.fftshift(fft.fft2(d[0][pol])))),cmap=matplotlib.cm.gray_r)
+            except:
+                pass
             plt.xlabel(intl_name[i])
         plt.savefig(pngdir+aipsname+('R' if pol else 'L')+'.png',bbox_inches='tight')
         plt.clf()
+    return 0.5*(fftsn[:,0]+fftsn[:,1])
+
+def aipszap (aipsname,aipsclass,indisk=1):
+    pca = AIPSCat()
+    for j in pca[indisk]:
+        if j['name']==aipsname and j['klass']==aipsclass:
+            if j['type']=='UV':
+                data = AIPSUVData(aipsname,aipsclass,indisk,j['seq'])
+            else:
+                data = AIPSImage(aipsname,aipsclass,indisk,j['seq'])
+            data.zap()
+
 
 ##############  BEGINNING OF SCRIPT #####################
 
 #  change the following things
-all_antennas = ['DE601','DE602','DE603','DE604','DE605','FR606','SE607','UK608','DE609','PL610','PL611','PL612','TS001','ST001']
-indisk = 1
-delaywin,ratewin = 600,5
+all_antennas = ['DE601','DE602','DE603','DE604','DE605','FR606','SE607','UK608','DE609','PL610','PL611','PL612','TS001','ST001','IE613']
+indisk = INDISK
+delaywin,ratewin = DELAYWIN,RATEWIN
+
 if len(sys.argv)<3:
     print 'syntax: parseltongue lofipi.py AIPS-no file-template [solint]'
     print '        where files wanted are datadir/file-template*'
@@ -205,7 +282,10 @@ if '*' in sys.argv[2]:
 else:
     infile = np.loadtxt(sys.argv[2],dtype='S')
 print infile
-solint = float(sys.argv[3]) if len(sys.argv)>3 else 0.1
+flog=open(FLOG,'a')
+flog.write('Processing file %s\n'%infile)
+flog.close()
+solint = float(sys.argv[3]) if len(sys.argv)>3 else SOLINT2
 os.system('mkdir ./logfiles ./pngfiles ./picfiles ./frifiles')
 logdir = './logfiles/'
 pngdir = './pngfiles/'
@@ -231,22 +311,12 @@ for fi in infile:
     if os.path.isfile(logdir+aipsname+'.log'):
         os.system('rm '+logdir+aipsname+'.log')
     print time.ctime(),':Processing ',fi,' with AIPS catalogue name',aipsname
-    pca = AIPSCat()
-    try:
-        for j in pca[indisk]:
-            if j['name']==aipsname and j['klass']=='FITS':
-                uvdata = AIPSUVData(aipsname,'FITS',indisk,j['seq'])
-                uvdata.zap()
-            if j['klass']=='SPLIT':
-                uvdata = AIPSUVData(j['name'],'SPLIT',indisk,j['seq'])
-                uvdata.zap()
-    except:
-        pass
-#    try:
+    flog=open(FLOG,'a')
+    flog.write('************* %s ************\n:Processing %s with AIPS cat name %s\n'%(time.ctime(),fi,aipsname))
+    flog.close()
+    aipszap (aipsname,'FITS')
+    aipszap (aipsname,'SPLIT')
     pload (fi if './' in fi else './'+fi,aipsname,indisk,'FITS',logdir)
-#    except:
-#        print 'Failed to load file',aipsname
-#        continue
     uvdata = AIPSUVData (aipsname,'FITS', 1, 1)
     cl = uvdata.table('CL',1)
     su = uvdata.table('SU',1) 
@@ -256,10 +326,11 @@ for fi in infile:
     except:
         nif = 1
     source = su[0]['source'].rstrip()
-    pfring_antennas,pfring_name,intl_antennas,intl_name,refant = [],[],[],[],-1
+    pfring_antennas,pfring_name,pfring_qual,intl_antennas,intl_name,\
+                    refant = [],[],[],[],[],-1
     for i in an:        # Find the reference antenna
         annew = i['anname'].strip('HBA').strip('LBA')[:5]
-        if annew in ['ST001','TS001']:
+        if annew in SUPERTERP:
             refant = i['nosta']
             refant_name = annew
     if refant==-1:      # No reference antenna
@@ -273,18 +344,30 @@ for fi in infile:
                 d,uvw,tjunk=dget(wdata,np.array([i['nosta'],refant]))
                 if not d[0].sum():     # No data on this antenna
                     print 'No data on antenna',i['nosta']
+                    flog=open(FLOG,'a')
+                    flog.write('No data on antenna %s\n'%str(i['nosta']))
+                    flog.close()
                     continue
                 intl_antennas.append(i['nosta'])
                 intl_name.append(annew)
             pfring_antennas.append(i['nosta'])
             pfring_name.append(annew)
+            dq,val = dqual(d[0])
+            pfring_qual.append(dq)
     obs['annames'] = list(pfring_antennas)
     obs['antennas'] = list(pfring_name)
     obs['source'] = source
+    obs['anqual'] = list(pfring_qual)
     print 'Found source',obs['source'],'with',obs['antennas'],nif,'IFs'
+    flog=open(FLOG,'a')
+    flog.write('Found source %s with '%obs['source'])
+    for i in obs['antennas']:
+        flog.write('%s '%i)
+    flog.write ('%d IFs\n'%nif)
+    flog.close()
 #   SN table 1 has just one solution; SN table 2 has user-defined solint
-    pfring (aipsname, refant, pfring_antennas, source, indisk, delaywin, ratewin ,solint=4, snr=6, logdir=logdir)
-    pfring (aipsname, refant, pfring_antennas, source, indisk, delaywin, ratewin ,solint=solint, snr=2, logdir=logdir)
+    pfring (aipsname, refant, pfring_antennas, source, indisk, delaywin, ratewin ,solint=SOLINT1, snr=SNR1, weightit=WEIGHT, logdir=logdir)
+    pfring (aipsname, refant, pfring_antennas, source, indisk, delaywin, ratewin ,solint=solint, snr=SNR2, weightit=WEIGHT, logdir=logdir)
     f = open(logdir+aipsname+'.log')
     ngood = nfail = 1
     for i in f:
@@ -306,15 +389,27 @@ for fi in infile:
     d,uvw,tjunk=dget(wdata,baselines)
     obs['uvw'] = uvw
     ra,dec = stats (aipsname,pfring_antennas,pgood,refant,obs,sd,sd1)
-    try:
-        panelplot(sd,aipsname,intl_antennas,intl_name,times,refant,ra,dec)
+    obs['fftsn'] = panelplot(sd,aipsname,intl_antennas,intl_name,times,refant,ra,dec)
+    flog=open(FLOG,'a')
+    sys.stdout.write('FFT s:n ratios ')
+    flog.write('FFT s:n ratios:')
+    for i in obs['fftsn']:
+        flog.write('%.1f '%i)
+        sys.stdout.write('%.1f '%i)
+    flog.write('\n')
+    flog.close(); print '\n'
+#    try:
+    if True:
         fringemap(AIPS.userno,aipsname,intl_name,refant_name,\
           fsiz=256,imaxoff=2.1,dofilt=True,fridir=fridir,logdir=logdir)
-    except:
-        pass
+        for i in intl_name:
+            aipszap(aipsname+i,'IMAP')
+#    except:
+#        flog = open(FLOG,'a')
+#        flog.write('ERROR: failed to make fringemap for %s\n'%aipsname)
+#        print 'ERROR: failed to make fringemap for %s\n'%aipsname
+#        flog.close()
     pickle.dump(obs,open(picdir+aipsname+'.pic','wb'))
-#    uvdata = AIPSUVData(aipsname,'FITS',indisk,1)
-#    uvdata.zap()
-#    uvdata = AIPSUVData(aipsname,'SPLIT',indisk,1)
-#    uvdata.zap()
+    aipszap (aipsname,'FITS',indisk)
+    aipszap (aipsname,'SPLIT',indisk)
     AIPSMessageLog().zap()

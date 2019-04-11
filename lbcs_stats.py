@@ -9,7 +9,7 @@ from correlate import *
 CORE2EFF = 266000.0
 tels = ['DE601','DE602','DE603','DE604','DE605','FR606','SE607','UK608','DE609','PL610','PL611','PL612','IE613']
 telc = ['r','y','m','g','k','b','c','#008000','#444444','#99EEAA','#CCBB66','#0000E0','#55AA22']
-nstats = 8
+NSTATS = 9
 # 2-d numpy array of vertices, then bbPath = mpath.Path(array), then bbPath.contains_point((x,y))
 ppath = np.array([[-0.01,-0.01],[-0.01,20],[50,45],[100,8],[50,-0.01]])
 spath = np.array([[100,8],[50,45],[85,60],[150,16]])
@@ -19,7 +19,7 @@ pPath,sPath,tPath,uPath = mpath.Path(ppath),mpath.Path(spath),mpath.Path(tpath),
 tlabel = ['Delay scatter/ns','Delay scatter L-R/ns','Delay L-R/ns',\
            'Rate scatter/mHz','Rate L-R/mHz','SNR','SNR-4min','Phase scatter L-R/deg']
 tlim = [[0,350],[0,350],[0,350],[0,100],[0,100],[0,100],[0,1000],[0,130]]
-titlestring = '       DELAY  DSCAT_LR  D_DELAY_4   RATE   RATE_4  SNR  SNR_4 PHSCAT_LR  UV  N\n'
+titlestring = '       DELAY  DSCAT_LR  D_DELAY_4   RATE   RATE_4  SNR  SNR_4 PHSCAT_LR  FFTSN  UV  N  QU\n'
 
 def hms2decimal (c, sep):
     cs = np.asarray(c.split(sep),dtype='f')
@@ -246,7 +246,7 @@ def complotstats (xcol,ycol,doannot=False):
 def lstats (picdir='./picfiles/',logfile='lbcs_stats.log',\
            sumfile='lbcs_stats.temp',access='w'):
     piclist = np.sort(glob.glob(picdir+'*.pic'))
-    rstats = np.ones((nstats,len(tels),len(piclist)))*np.nan
+    rstats = np.ones((NSTATS,len(tels),len(piclist)))*np.nan
     fo = open(logfile,access)
     fs = open(sumfile,access)
     tlist = np.array([''])
@@ -267,11 +267,12 @@ def lstats (picdir='./picfiles/',logfile='lbcs_stats.log',\
         fo.write('\n\n'+zstr+'\n')
         fs.write(zstr+'  ')
         fo.write(titlestring)
+        a['antennas'].remove('ST001')     # ugly, needed for sims
         for j in range(len(a['delay_4'])):   # loop over telescopes
             jt = tels.index(a['antennas'][j])
             bproj = np.hypot(a['uvw'][j][0],a['uvw'][j][1])/(1000.*wav)
             if np.isnan(bproj):   # telescope not working
-                for k in range(nstats):
+                for k in range(NSTATS):
                     rstats[k,jt,i] = np.nan
                 continue
             dcond = ~np.isnan(a['delay'][j,:,0]) & ~np.isnan(a['delay'][j,:,1])
@@ -291,7 +292,11 @@ def lstats (picdir='./picfiles/',logfile='lbcs_stats.log',\
             if len(phase0)>9:
                 diffphgdt = abs(np.gradient(phase0-phase1))*180./np.pi
                 rstats[7,jt,i] = np.median(diffphgdt)
-# 2-d numpy array of vertices, then bbPath = mpath.Path(array), then bbPath.contains_point((x,y))
+            if 'fftsn' in a.keys():
+                rstats[8,jt,i] = max(0,min(9,int(a['fftsn'][j]-30)/6))
+            else:
+                rstats[8,jt,i] = 0
+            # 2-d numpy array of vertices, then bbPath = mpath.Path(array), then bbPath.contains_point((x,y))
             if pPath.contains_point((rstats[1,jt,i],rstats[7,jt,i])):
                 zgood[jt]='P'
             elif sPath.contains_point((rstats[1,jt,i],rstats[7,jt,i])):
@@ -302,11 +307,22 @@ def lstats (picdir='./picfiles/',logfile='lbcs_stats.log',\
             else:
                 zgood[jt]='X'
             fo.write(a['antennas'][j]+'  ')
-            for k in range(nstats):  # loop over statistics
+            for k in range(NSTATS):  # loop over statistics
                 fo.write('%7.1f '%(rstats[k,jt,i]))
-            fo.write(' %4.0f %d\n'%(bproj,len(delay0)))
+            fo.write(' %4.0f %d '%(bproj,len(delay0)))
+            if 'anqual' in a.keys():
+                fo.write(' %c\n'%a['anqual'][j])
+            else:
+                fo.write('\n')
         for k in zgood:
             fs.write('%c'%k)
+        if 'anqual' in a.keys() and a['anqual'].count('O')!=len(a['anqual']):
+            fs.write(' %c '%list(filter(lambda x: x!='O',a['anqual']))[0])
+        else:
+            fs.write(' O ')
+        for k in rstats[8,:,i]:
+            fs.write('-' if np.isnan(k) else '%d'%int(k))
+        fs.write(' ')
         sra = np.asarray(a['point_RA'].split(':'),dtype='f')
         fs.write(' %10.6f' % (15.*sra[0]+sra[1]/4.+sra[2]/240.))
         sdec = np.asarray(a['point_dec'].split(':'),dtype='f')
@@ -335,8 +351,9 @@ def getstats (picdir='picfiles/'):
             if (b[i,5][0]+b[i,5][4]+b[i,5][8]).count('P')>1:
                 qthis[i]=1
         for ib in b:
-            fo.write(ib[0]+'  '+ib[1]+'  '+ib[2]+'  '+ib[3]+'  '+ib[4]+'  '+ib[5]+\
-                     '  '+'%02d'%int(100.*qthis.sum()/len(b))+'  '+ib[6]+'  '+ib[7]+'\n')
+            fo.write(ib[0]+'  '+ib[1]+'  '+ib[2]+'  '+ib[3]+'  '+ib[4]+'  '+ib[5]+'  '+ib[6]+'  '+ib[7]+\
+                     '  '+'%3d'%int(100.*qthis.sum()/len(b))+'  '+'%10s'%float(ib[8])+'  '+\
+                     '%10s'%ib[9]+'\n')
         icou += len(b)
     fo.close()
     os.system('sort -k 2 lbcs_stats.temp2 >lbcs_stats.temp3')   # sort to RA
@@ -374,18 +391,21 @@ def plotit():
     plotdensity(7,'P',False,'lbcs_den_7_P.png','UK608/P')
     plotdensity(7,'PS',False,'lbcs_den_7_PS.png','UK608/PS')
 
-def plotdensity (station=0,reqtype='PSX-',dobar=True,\
-                 outfile='lbcs_den.png',text='',vmin=0,vmax=2):
+def plotdensity (infile='lbcs_stats.sum',station=0,reqtype='PSX-',dobar=True,\
+                 outfile='lbcs_den.png',text='',vmin=0,vmax=2,racol=2,deccol=3):
     radius = 3.0
-    ain = np.loadtxt('lbcs_stats.sum',dtype='S')
-    for i in ain:
-        if i[5][station] in reqtype:
-            try:
-                a = np.vstack((a,i))
-            except:
-                a = np.copy(i)
-          
-    coords = sum2coords(a)
+    if infile=='lbcs_stats.sum':
+        ain = np.loadtxt(infile,dtype='S')
+        for i in ain:
+            if i[5][station] in reqtype:
+                try:
+                    a = np.vstack((a,i))
+                except:
+                    a = np.copy(i)
+        coords = sum2coords(a)
+    else:
+        ain = np.loadtxt(infile,dtype='S')
+        coords = np.asarray(np.column_stack((ain[:,racol],ain[:,deccol])),dtype='float')
     y,x = np.meshgrid(np.arange(0.,90,2),np.arange(0.,360,2))
     cgrid = np.dstack((x,y)).reshape(45*180,2)
     acorr = correlate(cgrid,0,1,coords,0,1,radius)
