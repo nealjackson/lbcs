@@ -5,7 +5,8 @@
 #
 import numpy as np, os, sys, glob, matplotlib, scipy; from scipy import stats
 from matplotlib import pyplot as plt, path as mpath
-from correlate import *
+from corrcat import correlate
+from lbcs_utils import *
 CORE2EFF = 266000.0
 tels = ['DE601','DE602','DE603','DE604','DE605','FR606','SE607','UK608','DE609','PL610','PL611','PL612','IE613']
 telc = ['r','y','m','g','k','b','c','#008000','#444444','#99EEAA','#CCBB66','#0000E0','#55AA22']
@@ -32,8 +33,8 @@ def dms2decimal (c, sep):
     return issouth*(abs(cs[0])+cs[1]/60.0+cs[2]/3600.0)
 
 def lbcsjvas (jvascat='/home/njj/catalogues/jvas.txt'):
-    lbcs = np.loadtxt('lbcs_stats.sum',dtype='S')
-    jvas = np.loadtxt(jvascat, dtype='S')
+    lbcs = np.loadtxt('lbcs_stats.sum',dtype='str')
+    jvas = np.loadtxt(jvascat, dtype='str')
     for i in lbcs:
         new = np.array([hms2decimal(i[1],':'),dms2decimal(i[2],':')])
         try:
@@ -50,12 +51,12 @@ def lbcsjvas (jvascat='/home/njj/catalogues/jvas.txt'):
     a=correlate(clbcs,0,1,cjvas,0,1,10./3600.)
     f=open('lbcs_in_jvas','w')
     for i in a:
-        f.write('%s\n'%(lbcs[i[0],0]))
+        f.write('%s\n'%(lbcs[int(i[0]),0]))
     f.close()
 
 def transfer (picdir):
     os.system('grep P lbcs_stats.sum >transfer_temp')
-    dat = np.loadtxt('transfer_temp',dtype='S')
+    dat = np.loadtxt('transfer_temp',dtype='str')
     for i in dat:
         new = np.array([hms2decimal(i[1],':'),dms2decimal(i[2],':')])
         try:
@@ -97,7 +98,7 @@ def coherence (picdir,solint=0.1,dtype='phase',dmax=500,outdir='',elevlim=0.0):
     coh = [[] for i in range(len(tels))]
     picdir = picdir+'/' if not picdir[-1]=='/' else picdir
     a = np.sort(glob.glob(picdir+'*'))
-    dat = np.loadtxt('lbcs_stats.sum',dtype='S')
+    dat = np.loadtxt('lbcs_stats.sum',dtype='str')
     fo = open('coherence.log','w')
     for i in dat:
         try:
@@ -106,7 +107,7 @@ def coherence (picdir,solint=0.1,dtype='phase',dmax=500,outdir='',elevlim=0.0):
             continue
         if 'S' in i[5] or 'X' in i[5] or 'D' in i[5]:  # only very good sources
             continue
-        pic = np.load(a[pidx])
+        pic = np.load(a[pidx],encoding='latin1',allow_pickle=True)
         y = []; py = []
         fo.write(i[0]+' ')
         for j in range(len(tels)):
@@ -145,7 +146,7 @@ def coherence (picdir,solint=0.1,dtype='phase',dmax=500,outdir='',elevlim=0.0):
                     maxrange = max(maxrange,1.1*(py[j].max()-py[j].min()))
             for j in range(len(tels)):
                 if len(py[j]):
-                    plt.subplot(521+j,xticks=[])
+                    plt.subplot(5,3,j+1,xticks=[])
                     scat = 1000.*np.std(py[j]-y[j])
                     cohv = coh[j][-1]
                     scat = 'nan' if (np.isnan(scat) or np.isinf(scat)) else str(int(scat))
@@ -165,25 +166,36 @@ def coherence (picdir,solint=0.1,dtype='phase',dmax=500,outdir='',elevlim=0.0):
     fo.close()
 
 def cohstats (stdlim=300,doprob=False,outfile='lbcs_coh.png',dmax=500):
-    a = np.asarray(np.loadtxt('coherence.log',dtype='S')[:,1:],dtype='float')
+    a = np.asarray(np.loadtxt('coherence.log',dtype='str')[:,1:],dtype='float')
     ks = np.zeros((len(tels),len(tels)))
     sys.stdout.write('      ')
     for tel in tels:
         sys.stdout.write(tel+' ')
     sys.stdout.write('\n')
     lengths = np.loadtxt('IBlengths')[1:,1:]
-    
-    boxes = [7,8,2,5,1,9,3,6,4]
+    boxes = 1+np.arange(13)   
+    plt.subplot(111)
     for i in range(len(tels)):
         samp1,std1 = a[:,2*i],a[:,2*i+1]
         std1 = std1[(~np.isnan(samp1))&(~np.isinf(samp1))]
         samp1 = samp1[(~np.isnan(samp1))&(~np.isinf(samp1))]
         samp1 = samp1[std1<stdlim]
-        plt.subplot(330+boxes[i],yticks=[])
-#        plt.subplot(331+i,yticks=[])
-        plt.hist(samp1,range=[0,dmax],bins=25,label=tels[i])
-        print tels[i],np.median(samp1)
-        plt.legend(handlelength=0.0)
+        scum = []
+        for j in range(dmax):
+            scum.append(len(samp1[samp1<j])/float(len(samp1)))
+        colours = ['b','y','g','g','b','y','y','y','b','y','r','r','r']
+        colour = colours[i]+'-'
+        if i==0:
+            plt.plot(np.arange(dmax),scum,colour,label='<300km')
+        elif i==2:
+            plt.plot(np.arange(dmax),scum,colour,label='300-500km')
+        elif i==5:
+            plt.plot(np.arange(dmax),scum,colour,label='500-800km')
+        elif i==10:
+            plt.plot(np.arange(dmax),scum,colour,label='>800km')
+        else:
+            plt.plot(np.arange(dmax),scum,colour)
+        plt.legend()
         for j in range(len(tels)):
             samp2,std2 = a[:,2*j],a[:,2*j+1]
             std2 = std2[(~np.isnan(samp2))&(~np.isinf(samp2))]
@@ -191,11 +203,13 @@ def cohstats (stdlim=300,doprob=False,outfile='lbcs_coh.png',dmax=500):
             samp2 = samp2[std2<stdlim]
             ks[i,j] = (-np.log10(stats.ks_2samp(samp1,samp2)[1])) if doprob \
                       else stats.ks_2samp(samp1,samp2)[0]
+    plt.xlabel('Coherence time/s')
+    plt.ylabel('Fraction with t<t_coh')
     plt.savefig(outfile,bbox_inches='tight'); plt.clf()
     px = []; py = []
-    for i in range(9):
+    for i in range(len(tels)):
         sys.stdout.write(tels[i]+' ')
-        for j in range(9):
+        for j in range(len(tels)):
             sys.stdout.write('%5.1f '%ks[i,j] if doprob else '%5.2f '%ks[i,j])
             if j>i:
                 px.append(lengths[i,j])
@@ -203,7 +217,7 @@ def cohstats (stdlim=300,doprob=False,outfile='lbcs_coh.png',dmax=500):
         sys.stdout.write('\n')
     plt.subplot(111)
     plt.plot(px,py,'bo')
-    print stats.spearmanr(px,py)
+    print (stats.spearmanr(px,py))
     plt.show()            
     plt.clf()
 
@@ -216,13 +230,13 @@ def complotstats (xcol,ycol,doannot=False):
         if line[0] == 'L':
             source, ra, dec, day, time = line.split()
         if line[:5] in tels:
-            new = np.asarray(line.split()[1:],dtype='f')
+            new = np.asarray(line.split()[1:12],dtype='f')
             idx = tels.index(line[:5])
             try:
                 s[idx] = np.vstack((s[idx],new))
             except:
                 s[idx] = np.copy(new)
-
+    print('Number of sources:',len(s))
     for i in range(len(tels)):
         plt.plot(s[i][:,xcol],s[i][:,ycol],color=telc[i],marker='.',\
                  linestyle='',ms=0.7)
@@ -243,6 +257,18 @@ def complotstats (xcol,ycol,doannot=False):
         plt.plot(upath[:,0],upath[:,1],'k-')
     plt.show()
 
+def cfigs (c, n):
+    a=c.split(':')
+    if len(a)!=3:
+        return a
+    if n==2:
+        ostr = a[0].lstrip('+')+':'+a[1]+':'+'%05.2f'%float(a[2])
+    elif n==1:
+        ostr = a[0].lstrip('+')+':'+a[1]+':'+'%04.1f'%float(a[2])
+    else:
+        return a
+    return ostr
+        
 def lstats (picdir='./picfiles/',logfile='lbcs_stats.log',\
            sumfile='lbcs_stats.temp',access='w'):
     piclist = np.sort(glob.glob(picdir+'*.pic'))
@@ -252,8 +278,8 @@ def lstats (picdir='./picfiles/',logfile='lbcs_stats.log',\
     tlist = np.array([''])
     for i in range(len(piclist)):
         if not i%1000:
-            print 'Processing line',i
-        a = np.load(piclist[i])
+            print ('Processing line',i)
+        a = np.load(piclist[i],encoding='latin1',allow_pickle=True)
         wav = CORE2EFF/np.sqrt((a['uvw'][0]**2).sum())
         t = a['time_start']*24
         th = int(t); t-=th; t*=60.
@@ -262,7 +288,7 @@ def lstats (picdir='./picfiles/',logfile='lbcs_stats.log',\
         if idstr not in tlist:
             tlist = np.append (tlist,idstr)
         nstr = piclist[i].split('L')[-1].split('.')[0]
-        zstr = 'L'+nstr+'  '+a['point_RA']+'  '+a['point_dec']+'  '+idstr
+        zstr = 'L'+nstr+'  '+cfigs(a['point_RA'],2)+'  '+cfigs(a['point_dec'],1)+'  '+idstr
         zgood = ['-']*len(tels)
         fo.write('\n\n'+zstr+'\n')
         fs.write(zstr+'  ')
@@ -295,7 +321,7 @@ def lstats (picdir='./picfiles/',logfile='lbcs_stats.log',\
             if 'fftsn' in a.keys():
                 rstats[8,jt,i] = max(0,min(9,int(a['fftsn'][j]-30)/6))
             else:
-                rstats[8,jt,i] = 0
+                rstats[8,jt,i] = np.nan
             # 2-d numpy array of vertices, then bbPath = mpath.Path(array), then bbPath.contains_point((x,y))
             if pPath.contains_point((rstats[1,jt,i],rstats[7,jt,i])):
                 zgood[jt]='P'
@@ -338,7 +364,7 @@ def getstats (picdir='picfiles/'):
     os.system('sort -k 4,5 lbcs_stats.temp >lbcs_stats.temp1')
     # Quality control: add quality flag if fewer than 8 (4) sources detected
     # by at least 2 of DE601, DE605, DE609
-    a = np.loadtxt('lbcs_stats.temp1',dtype='S')
+    a = np.loadtxt('lbcs_stats.temp1',dtype='str')
     fo = open('lbcs_stats.temp2','w')
     icou=0
     while True:
@@ -373,29 +399,45 @@ def sum2coords (a):
 # Look for duplicate observations and produce a list of two-character 
 # representations from pairs of observations - e.g. 'PP' means detected
 # on a particular baseline in both
-def reproducibility ():   
-    a = np.loadtxt('lbcs_stats.sum',dtype='S')
+def reproducibility (infile='lbcs_stats.sum',outfile=''):   
+    a = np.loadtxt(infile,dtype='str')
     coords = sum2coords(a)
     acorr = correlate(coords,0,1,coords,0,1,0.003)
     acorr = acorr[acorr[:,0]<acorr[:,1]]
-    pp=ps=px=sx=xx=0; rr=[]
+    tdiff = np.zeros((len(tels),10),dtype='float')
     for i in acorr:
-        r1,r2 = a[int(i[0])][5], a[int(i[1])][5]
-        for j in range(len(r1)):
-            print r1[j]+r2[j]
-            rr.append(r1[j]+r2[j])
+        g1,g2 = a[int(i[0]),7],a[int(i[1]),7]
+        for tel in range(len(tels)):
+            if g1[tel]!='-' and g2[tel]!='-':
+                tdiff[tel,abs(int(g1[tel])-int(g2[tel]))]+=1
+    matplotlib.rcParams.update({'font.size':14})
+    for tel in range(len(tels)):
+        tdiff[tel] /= tdiff[tel].sum()
+        for i in range(1,len(tdiff[tel])):
+            tdiff[tel,i]+=tdiff[tel,i-1]
+        plt.plot(tdiff[tel])
+    matplotlib.rcParams.update({'font.size':10})
+    plt.legend(tels)
+    matplotlib.rcParams.update({'font.size':14})
+    plt.xlabel('Difference in S:N parameter')
+    plt.ylabel('Cumulative fraction')
+    if outfile=='':
+        plt.show()
+    else:
+        plt.savefig(outfile,bbox_inches='tight')
+    plt.clf()
 
 def plotit():
-    plotdensity(0,'P',False,'lbcs_den_0_P.png','DE601/P')
-    plotdensity(0,'PS',False,'lbcs_den_0_PS.png','DE601/PS')
-    plotdensity(7,'P',False,'lbcs_den_7_P.png','UK608/P')
-    plotdensity(7,'PS',False,'lbcs_den_7_PS.png','UK608/PS')
+    plotdensity(station=0,reqtype='P',dobar=False,outfile='lbcs_den_0_P.png',text='DE601/P')
+    plotdensity(station=0,reqtype='PS',dobar=False,outfile='lbcs_den_0_PS.png',text='DE601/PS')
+    plotdensity(station=7,reqtype='P',dobar=False,outfile='lbcs_den_7_P.png',text='UK608/P')
+    plotdensity(station=7,reqtype='PS',dobar=False,outfile='lbcs_den_7_PS.png',text='UK608/PS')
 
 def plotdensity (infile='lbcs_stats.sum',station=0,reqtype='PSX-',dobar=True,\
-                 outfile='lbcs_den.png',text='',vmin=0,vmax=2,racol=2,deccol=3):
+                 outfile='lbcs_den.png',text='',vmin=0,vmax=2,racol=2,deccol=3,black_level=1.0):
     radius = 3.0
     if infile=='lbcs_stats.sum':
-        ain = np.loadtxt(infile,dtype='S')
+        ain = np.loadtxt(infile,dtype='str')
         for i in ain:
             if i[5][station] in reqtype:
                 try:
@@ -404,7 +446,7 @@ def plotdensity (infile='lbcs_stats.sum',station=0,reqtype='PSX-',dobar=True,\
                     a = np.copy(i)
         coords = sum2coords(a)
     else:
-        ain = np.loadtxt(infile,dtype='S')
+        ain = np.loadtxt(infile,dtype='str')
         coords = np.asarray(np.column_stack((ain[:,racol],ain[:,deccol])),dtype='float')
     y,x = np.meshgrid(np.arange(0.,90,2),np.arange(0.,360,2))
     cgrid = np.dstack((x,y)).reshape(45*180,2)
@@ -415,7 +457,7 @@ def plotdensity (infile='lbcs_stats.sum',station=0,reqtype='PSX-',dobar=True,\
     cplot = ngrid.reshape(180,45).T/(np.pi*radius**2)
     cplot = cplot[:,::-1]
     plt.imshow(cplot,extent=[24,0,0,90],cmap=matplotlib.cm.gray_r,\
-               vmin=vmin,vmax=vmax,aspect=0.0692)
+               vmin=0.0,vmax=black_level,aspect=0.0692)
     plt.contour(cplot,[1.0],extent=[24.0,0.0,0,90])
     plt.text(20,10,text)
     eq = ga2eq(10); plt.plot(eq[:,0],eq[:,1],'r-')
@@ -425,7 +467,7 @@ def plotdensity (infile='lbcs_stats.sum',station=0,reqtype='PSX-',dobar=True,\
     plt.ylim(0.0,90.0)
     plt.grid()
     if dobar:
-        plt.colorbar(orientation='horizontal')
+        plt.colorbar()
     plt.savefig (outfile,bbox_inches='tight')
     plt.clf()
 
@@ -446,16 +488,16 @@ def ga2eq (ga):
 # Columns: lbcs_list(N): name ra dec vlss msss c6 wenss isvlba
 #          lbcs_south: name ra dec vlss nvss
 def plotdetect (dfile = 'lbcs_stats.sum'):
-    a = np.loadtxt(dfile ,dtype='S')
+    a = np.loadtxt(dfile ,dtype='str')
     coords = sum2coords(a)
-    listN = np.loadtxt('../scheduling/lbcs_list',dtype='S')
+    listN = np.loadtxt('../scheduling/lbcs_list',dtype='str')
     coordsN = np.asarray(listN[:,1:3],dtype='float')
     acorrN = correlate(coords,0,1,coordsN,0,1,0.003)
-#    listS = np.loadtxt('../scheduling/lbcs_south',dtype='S')
+#    listS = np.loadtxt('../scheduling/lbcs_south',dtype='str')
 #    coordsS = np.asarray(listS[:,1:3],dtype='float')
 #    acorrS = correlate(coords,0,1,coordsS,0,1,0.003)
     ndet,wflux,spind,ncorr = np.array([]),np.array([]),np.array([]), 0
-    det = np.zeros((9,len(acorrN)),dtype='S')
+    det = np.zeros((9,len(acorrN)),dtype='str')
     for cN in acorrN:
         for j in range(9):
             det[j,ncorr] = a[int(cN[0])][5][j]
@@ -491,8 +533,7 @@ def plotdetect (dfile = 'lbcs_stats.sum'):
             if nall and n7 and (n7/nall)*np.sqrt(1./n7+1./nall)<0.1:
                 aplot7[i,j] = n7/nall
             if i==0 and j==1:
-                print 'n0,n7,nall',n0,n7,nall
-
+                print ('n0,n7,nall',n0,n7,nall)
     matplotlib.rcParams.update({'font.size': 14})
     plt.subplot(211,xticks=[])                
     plt.imshow(aplot0,extent=[-1.0,1.0,-1.0,0.0],vmax=0.6,cmap=matplotlib.cm.gray_r)
@@ -512,8 +553,8 @@ def plotdetect (dfile = 'lbcs_stats.sum'):
 
 def plotstats(doshow=False):
     #  next part of code is public-release along with lbcs_stats.sum
-    a = np.loadtxt('lbcs_stats.sum',dtype='S')
-    ra,dec,status,q = np.zeros(len(a)),np.zeros(len(a)),np.zeros(len(a)),a[:,6]
+    a = np.loadtxt('lbcs_stats.sum',dtype='str')
+    ra,dec,status,q = np.zeros(len(a)),np.zeros(len(a)),np.zeros(len(a)),a[:,8]
     m = []
     colour = []
     for i in range(len(a)):
@@ -593,7 +634,7 @@ def elev (a, tel):
         GST+=24.0
     while GST>24.0:
         GST-=24.0
-    ibpos = np.loadtxt('IBpos',dtype='S')
+    ibpos = np.loadtxt('IBpos',dtype='str')
     lat = float(ibpos[:,1][np.argwhere(ibpos[:,0]==tel)[0][0]])
     longit = float(ibpos[:,2][np.argwhere(ibpos[:,0]==tel)[0][0]])
     lst = 15.0*GST+longit
