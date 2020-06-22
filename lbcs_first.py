@@ -11,6 +11,30 @@ from corrcat import *
 def tfl (array):
     return np.asarray(array,dtype='float')
 
+def get_quasars (xs_flw):
+    # do things with quasars vs non quasars
+    qlink = 'https://www.dropbox.com/s/lf517o6q56t0yum/milliquas.npy?dl=0'
+    try:
+        quas = np.load('milliquas.npy')
+    except:
+        os.system('wget '+qlink)
+        quas = np.load('milliquas.npy')
+    
+    qcoord=np.asarray(quas[:,:2],dtype='float')
+    flwcoord=np.asarray(xs_flw[:,8:10],dtype='float')
+    corrq = correlate(flwcoord,0,1,qcoord,0,1,0.01)
+    cond_quas = np.array([],dtype='bool')
+    quas_idx = np.asarray(corrq[:,:2],dtype='int')
+    quas_type = np.array([],dtype='str')
+    for i in range(len(xs_flw)):
+        if i in quas_idx[:,0]:
+            this_idx = np.argwhere(quas_idx[:,0]==i)[0][0]
+            quas_type = np.append(quas_type,quas[quas_idx[this_idx,1],2])
+        else:
+            quas_type = np.append(quas_type,'G')
+        cond_quas = np.append(cond_quas,'q' in quas_type[i] or 'Q' in quas_type[i])
+    return quas_type, cond_quas
+
 def makeflw(): # make a data file with all of the LBCS etc information
     firstcat = '/home/njj/catalogues/first_2014.simple.npy'
     if not os.path.isfile('../final_cat/lbcs_stats.cons'):
@@ -182,16 +206,17 @@ def makeflw(): # make a data file with all of the LBCS etc information
                             np.column_stack((vlba_ra,vlba_dec)),0,1,0.02)
     corr_flw_vlba_vidx = np.asarray(corr_flw_vlba[:,0],dtype='int')
     cond_vlba = np.array([],dtype='bool')
+    quas_type, cond_quas = get_quasars (xs_flw)
     for i in range(len(xs_flw)):
         cond_vlba = np.append(cond_vlba, i in corr_flw_vlba_vidx)
     f = open('lbcs_flw.dat','w')
-    n = f.write('# LIDX   WIDX   SPIX   FPF    FIF    FWID  FXR   FPA     WRA      WDEC  VLBA    COH1     COH2\n')
+    n = f.write('# LIDX   WIDX   SPIX   FPF    FIF    FWID  FXR   FPA     WRA      WDEC  VLBA   QUAS  COH1     COH2\n')
     xz = tfl(xs_flw[:,:10])
     for i in range(len(xs_flw)):
-        n=f.write('%6.0f %6.0f %5.2f %6.1f %6.1f %7.2f %4.1f %5.1f %10.6f %10.6f %d %s %s\n'%\
+        n=f.write('%6.0f %6.0f %5.2f %6.1f %6.1f %7.2f %4.1f %5.1f %10.6f %10.6f %d %4s %s %s\n'%\
                 (xz[i,0],xz[i,1],xz[i,2],xz[i,3],xz[i,4],\
                  xz[i,5],xz[i,6],xz[i,7],xz[i,8],xz[i,9],\
-                 cond_vlba[i],xs_flw[i,10],xs_flw[i,11]))
+                 cond_vlba[i],quas_type[i],xs_flw[i,10],xs_flw[i,11]))
 
     f.close()
 
@@ -206,8 +231,9 @@ def tocohstat(a):
 def loadflw():
     a = np.loadtxt('lbcs_flw.dat',dtype='str')
     xs_flw = tfl(a[:,:11])
-    xs_flw_coh = np.asarray(a[:,11:13],dtype='str')
+    xs_flw_coh = np.asarray(a[:,12:14],dtype='str')
     xs_flw_cohstat = tocohstat(xs_flw_coh[:,0])
+    xs_flw_quas = a[:,11]
     cond_vlba = np.asarray(a[:,10],dtype='bool')
     cond_point = xs_flw[:,5]<=2.0
     cond_ext = xs_flw[:,5]>2.0
@@ -216,11 +242,11 @@ def loadflw():
     a = np.loadtxt('lbcs_fw.dat',dtype='float')
     xs_fw_point = a[a[:,5]<2.0]
     return xs_flw,xs_flw_coh,xs_flw_cohstat,cond_vlba,cond_point,cond_ext,cond_coh,\
-        cond_notcoh,xs_fw_point
+        cond_notcoh,xs_fw_point,xs_flw_quas
     
 makeflw()
 xs_flw,xs_flw_coh,xs_flw_cohstat,cond_vlba,cond_point,cond_ext,cond_coh,cond_notcoh,\
-    xs_fw_point = loadflw()
+    xs_fw_point,xs_flw_quas = loadflw()
 
 def plot_spix_flux(panel,arrbkg,arr,xcol,ycol,cond1,cond2,xlab='FIRST/WENSS spectral index',\
                    ylab='FIRST flux/mJy',spmult=0.0):
@@ -297,27 +323,9 @@ plot_sncoh_f151 (xs_flw,xs_flw_coh,cond_point,'Coherence for LBCS sources',\
                  'lbcs_point_coh.png')
 
 
-# do things with quasars vs non quasars
-qlink = 'https://www.dropbox.com/s/lf517o6q56t0yum/milliquas.npy?dl=0'
-try:
-    quas = np.load('milliquas.npy')
-except:
-    os.system('wget '+qlink)
-    quas = np.load('milliquas.npy')
-    
-qcoord=np.asarray(quas[:,:2],dtype='float')
-corrq = correlate(xs_flw,8,9,qcoord,0,1,0.01)
-cond_quas = np.array([],dtype='bool')
-quas_idx = np.asarray(corrq[:,:2],dtype='int')
-quas_type = np.array([],dtype='str')
-for i in range(len(xs_flw)):
-    if i in quas_idx[:,0]:
-        this_idx = np.argwhere(quas_idx[:,0]==i)[0][0]
-        quas_type = np.append(quas_type,quas[quas_idx[this_idx,1],2])
-    else:
-        quas_type = np.append(quas_type,'G')
-    cond_quas = np.append(cond_quas,'q' in quas_type[i] or 'Q' in quas_type[i])
-
+cond_quas = []
+for i in xs_flw_quas:
+    cond_quas.append ('q' in i or 'Q' in i)
 plt.hist(xs_flw[:,5],range=[0,30],bins=60,label='all objects',alpha=0.5)
 plt.hist(xs_flw[:,5][cond_quas],range=[0,30],bins=60,label='quasars')
 plt.legend()
