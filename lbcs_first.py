@@ -132,6 +132,9 @@ def makeflw(): # make a data file with all of the LBCS etc information
     #   LIDX WIDX SPIX FPF  FIF  FWID FXR  FPA  WRA  WDEC 
     #################################################
     for i in corr_fw_int:
+#        f=open('junk','a')
+#        f.write('%d %s %s\n'%(i[0],str(first_north[i[0]]),str(wenss[i[1]])))
+#        f.close()
         this = np.array([float(i[0]),float(i[1]),\
                          1.577*np.log10(first_north[i[0],3]/wenss[i[1],4])])
         this = np.append(this,first_north[i[0],2:7])
@@ -219,47 +222,28 @@ makeflw()
 xs_flw,xs_flw_coh,xs_flw_cohstat,cond_vlba,cond_point,cond_ext,cond_coh,cond_notcoh,\
     xs_fw_point = loadflw()
 
+def plot_spix_flux(panel,arrbkg,arr,xcol,ycol,cond1,cond2,xlab='FIRST/WENSS spectral index',\
+                   ylab='FIRST flux/mJy',spmult=0.0):
+    plt.subplot(panel)
+    plt.yscale('log')
+    plt.plot(arrbkg[:,xcol],arrbkg[:,ycol],'y,')
+    yarr = arr[cond1][:,ycol]*spmult**arr[cond1][:,xcol] if spmult!=0.0 else arr[cond1][:,ycol]
+    plt.plot(arr[cond1][:,xcol],yarr,'gx')
+    yarr = arr[cond2][:,ycol]*spmult**arr[cond2][:,xcol] if spmult!=0.0 else arr[cond2][:,ycol]
+    plt.plot(arr[cond2][:,xcol],yarr,'rx')
+    plt.xlabel(xlab);plt.ylabel(ylab)
+    plt.xlim(-1.3,0.7);plt.ylim(20.0,6000.0)
+    
 # plot everything, non-VLBA and VLBA
-plt.subplot(121)
-plt.yscale('log')
-plt.plot(xs_fw_point[:,2],xs_fw_point[:,4],'y,')
-plt.plot(xs_flw[cond_point&cond_coh][:,2],xs_flw[cond_point&cond_coh][:,4],'gx')
-plt.plot(xs_flw[cond_point&cond_notcoh][:,2],xs_flw[cond_point&cond_notcoh][:,4],'rx')
-plt.xlabel('FIRST/WENSS spectral index');plt.ylabel('FIRST flux/mJy')
-plt.xlim(-1.3,0.7);plt.ylim(20.0,6000.0)
-plt.subplot(122)
-plt.yscale('log')
-plt.plot(xs_fw_point[:,2],xs_fw_point[:,4],'y,')
-plt.plot(xs_flw[cond_point&cond_vlba&cond_coh][:,2],xs_flw[cond_point&cond_vlba&cond_coh][:,4],'gx')
-plt.plot(xs_flw[cond_point&cond_vlba&cond_notcoh][:,2],xs_flw[cond_point&cond_vlba&cond_notcoh][:,4],'rx')
-plt.xlabel('FIRST/WENSS spectral index');plt.ylabel('FIRST flux/mJy')
-plt.xlim(-1.3,0.7);plt.ylim(20.0,6000.0)
-plt.savefig('lbcs_spix_fluxL.png')
-plt.clf()
+plot_spix_flux(121,xs_fw_point,xs_flw,2,4,cond_point&cond_coh,cond_point&cond_notcoh)
+plot_spix_flux(122,xs_fw_point,xs_flw,2,4,cond_point&cond_vlba&cond_coh,cond_point&cond_vlba&cond_notcoh)
+plt.savefig('lbcs_spix_fluxL.png');plt.clf()
 # Now let's try and plot the extrapolated 150MHz flux against spectral
 #  index instead: 150MHz flux = FIRST flux * 0.1071**spectral index
-plt.subplot(121)    # for all sources
-plt.yscale('log')
-plt.plot(xs_fw_point[:,2],xs_fw_point[:,4]*0.1071**xs_fw_point[:,2],'y,')
-tx,ty = xs_flw[cond_point&cond_coh][:,2],xs_flw[cond_point&cond_coh][:,4]
-plt.plot(tx,ty*0.1071**tx,'gx')
-tx,ty = xs_flw[cond_point&cond_notcoh][:,2],xs_flw[cond_point&cond_notcoh][:,4]
-plt.plot(tx,ty*0.1071**tx,'rx')
-plt.xlabel('FIRST/WENSS spectral index');plt.ylabel('Implied LBCS flux')
-plt.xlim(-1.3,0.7);plt.ylim(20.0,6000.0)
-plt.subplot(122)   # just for VLBA calibrators
-plt.yscale('log')
-plt.plot(xs_fw_point[:,2],xs_fw_point[:,4]*0.1071**xs_fw_point[:,2],'y,')
-tx = xs_flw[cond_point&cond_vlba&cond_coh][:,2]
-ty = xs_flw[cond_point&cond_vlba&cond_coh][:,4]
-plt.plot(tx,ty*0.1071**tx,'gx')
-tx = xs_flw[cond_point&cond_vlba&cond_notcoh][:,2]
-ty = xs_flw[cond_point&cond_vlba&cond_notcoh][:,4]
-plt.plot(tx,ty*0.1071**tx,'rx')
-plt.xlabel('FIRST/WENSS spectral index');plt.ylabel('Implied LBCS flux')
-plt.xlim(-1.3,0.7);plt.ylim(20.0,6000.0)
-plt.savefig('lbcs_spix_flux150.png')
-plt.clf()
+plot_spix_flux(121,xs_fw_point,xs_flw,2,4,cond_point&cond_coh,cond_point&cond_notcoh,spmult=0.1071)
+plot_spix_flux(122,xs_fw_point,xs_flw,2,4,cond_point&cond_vlba&cond_coh,cond_point&cond_vlba&cond_notcoh,\
+               spmult=0.1071,ylab='Implied LBCS flux')
+plt.savefig('lbcs_spix_flux150.png');plt.clf()
 #
 # So it looks like there is a cut about 200mJy for the VLBA sources. So why are there
 # some non-VLBA sources detected in LBCS that are apparently very faint?
@@ -312,3 +296,32 @@ plot_sncoh_f151 (xs_flw,xs_flw_coh,np.logical_and(cond_point,cond_vlba),'\
 plot_sncoh_f151 (xs_flw,xs_flw_coh,cond_point,'Coherence for LBCS sources',\
                  'lbcs_point_coh.png')
 
+
+# do things with quasars vs non quasars
+qlink = 'https://www.dropbox.com/s/lf517o6q56t0yum/milliquas.npy?dl=0'
+try:
+    quas = np.load('milliquas.npy')
+except:
+    os.system('wget '+qlink)
+    quas = np.load('milliquas.npy')
+    
+qcoord=np.asarray(quas[:,:2],dtype='float')
+corrq = correlate(xs_flw,8,9,qcoord,0,1,0.01)
+cond_quas = np.array([],dtype='bool')
+quas_idx = np.asarray(corrq[:,:2],dtype='int')
+quas_type = np.array([],dtype='str')
+for i in range(len(xs_flw)):
+    if i in quas_idx[:,0]:
+        this_idx = np.argwhere(quas_idx[:,0]==i)[0][0]
+        quas_type = np.append(quas_type,quas[quas_idx[this_idx,1],2])
+    else:
+        quas_type = np.append(quas_type,'G')
+    cond_quas = np.append(cond_quas,'q' in quas_type[i] or 'Q' in quas_type[i])
+
+plt.hist(xs_flw[:,5],range=[0,30],bins=60,label='all objects',alpha=0.5)
+plt.hist(xs_flw[:,5][cond_quas],range=[0,30],bins=60,label='quasars')
+plt.legend()
+plt.title('LBCS-First-Wenss sources')
+plt.xlabel('FIRST major axis size/arcsec')
+plt.ylabel('Number')
+plt.savefig('lbcs_quas.png')
